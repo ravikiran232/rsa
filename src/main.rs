@@ -1,15 +1,17 @@
-
 use std::io::Read;
 
-use crate::key_gen::Key;
+use crate::{decrypt::Decryption, encrypt::Encryption, keygen::{Key, KeyType}};
 
-mod key_gen;
+mod keygen;
 mod utilities;
+mod encrypt;
+mod decrypt;
+mod oaep;
 fn main() {
-    let keys = Key::generte_rsa_keys(2048, None);
+    let keys = Key::generte_rsa_keys(3072, None);
 
-    let mut file1=std::fs::File::open("signed_hash").unwrap();
-    let mut file2=std::fs::File::open("signed_hash").unwrap();
+    let mut file1 = std::fs::File::open("src/encrypt.rs").unwrap();
+    let mut file2 = std::fs::File::open("src/encrypt.rs").unwrap();
 
     let mut str1 = String::new();
     let mut str2 = String::new();
@@ -23,18 +25,38 @@ fn main() {
     println!("{:?}", hash1);
     println!("{:?}", hash2);
 
-    // let m1 = BigUint::from_i128(hash1 as i128).expect("error");
-    // let m2 = BigUint::from_i128(hash2 as i128).expect("error");
+    // example for signing and validation
+    // no padding is used for signing, so use it with caution
 
-    println!("enter the file name");
-    let mut file_name = String::new();
-    std::io::stdin()
-        .read_line(&mut file_name)
-        .expect("error in reading the input");
-    file_name = file_name.trim().to_string();
-    let signing = keys.sign(hash1);
-    keys.save_to_file(&signing, &file_name);
+    let signing = keys.rsaprivate_key.sign(&hash1);
+    println!("{:?}", keys.rsapublic_key.validate(&hash2, &signing));
 
-    println!("{:?}", Key::validate_from_file(&file_name, &hash2));
-    println!("{:?}", keys.validate(hash2, signing));
+    // If you don't have the full Key you can use publickey(n,e) for validation and privatekey(d,n) for signing
+    // example
+    let privatekey = KeyType::RSAPrivateKey {
+        d: keys.get_d().unwrap(),
+        n: keys.get_n().unwrap(),
+    };
+    let publickey = KeyType::RSAPublicKey {
+        n: keys.get_n().unwrap(),
+        e: keys.get_e().unwrap(),
+    };
+    let new_sign = privatekey.sign(&hash1);
+    println!("{:?}", publickey.validate(&hash2, &new_sign));
+
+
+    //example for encryption and decryption using OAEP padding
+    // you get the encrypted message in base64 format
+    // base64 encoded message will be given as input to decrypt function
+    // encryption should be done using public key otherwise it will throw an InvalidKeyTypeError
+    // decryption should be done using private key otherwise it will throw an InvalidKeyTypeError
+    // if wrong key is used for decryption it will throw DecryptionFailed error or DecodingError
+    // if wrongly generated public key is used for encryption error will be thrown
+
+    for _ in 0..6{
+    let encrypted = keys.rsapublic_key.encrypt("Remember the emoji 😊".as_bytes());
+    println!("{:?}",encrypted);
+    let decrypted = keys.rsaprivate_key.decrypt(&encrypted.unwrap());
+    println!("{:?}",decrypted);}
+
 }

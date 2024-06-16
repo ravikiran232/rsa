@@ -6,7 +6,7 @@ use num_traits::FromPrimitive;
 #[derive(Debug)]
 pub enum KeyType {
     RSAPublicKey { n: BigUint, e: u64 },
-    RSAPrivateKey { d: BigUint },
+    RSAPrivateKey { d: BigUint, n: BigUint },
 }
 
 #[derive(Debug)]
@@ -15,16 +15,34 @@ pub struct Key {
     pub rsapublic_key: KeyType,
 }
 
-impl Key {
-    pub fn validate_from_file(file_path: &str, content_hash: &BigUint) -> bool {
-        let values = utilities::read_file(file_path);
-        let new_value = values[0].modpow(&values[2], &values[1]);
+impl KeyType {
+    pub fn validate(&self, content_hash: &BigUint, sign_value: &BigUint) -> bool {
+        let (n, e) = match self {
+            KeyType::RSAPublicKey { n, e } => (Some(n), Some(e)),
+            _ => (None, None),
+        };
+        let (n, e) = (n.unwrap(), e.unwrap());
+        let new_value = sign_value.modpow(
+            &BigUint::from_i64(*e as i64).expect("BigUint conversion failed"),
+            &n,
+        );
         if new_value == *content_hash {
             return true;
         }
         false
     }
 
+    pub fn sign(&self, content_hash: &BigUint) -> BigUint {
+        let (d, n) = match self {
+            KeyType::RSAPrivateKey { d, n } => (Some(d), Some(n)),
+            _ => (None, None),
+        };
+        let (d, n) = (d.unwrap(), n.unwrap());
+        content_hash.modpow(&d, &n)
+    }
+}
+
+impl Key {
     pub fn generte_rsa_keys(key_length: u64, e: Option<u64>) -> Key {
         let mut p = utilities::generate_primes(key_length);
         while prime_test(&p) != true {
@@ -37,20 +55,20 @@ impl Key {
         let n = &p * &q;
 
         let e = e.unwrap_or(65537);
-        let phi = (p - BigUint::from_i8(1).expect("")) * (q - BigUint::from_i8(1).expect(""));
+        let phi = &p * &q - (p + q) + BigUint::from_i8(1).expect("BigUint conversion failed");
         let d = BigUint::from_i64(e as i64)
-            .expect("")
+            .expect("BigUint conversion failed")
             .modinv(&phi)
-            .expect("error in d");
+            .expect("change the e value(odd)");
         Key {
-            rsaprivate_key: KeyType::RSAPrivateKey { d: d },
+            rsaprivate_key: KeyType::RSAPrivateKey { d: d, n: n.clone() },
             rsapublic_key: KeyType::RSAPublicKey { n: n, e: e },
         }
     }
 
     pub fn get_d(&self) -> Option<BigUint> {
         match &self.rsaprivate_key {
-            KeyType::RSAPrivateKey { d } => Some(d.clone()),
+            KeyType::RSAPrivateKey { d, n: _ } => Some(d.clone()),
             _ => None,
         }
     }
@@ -67,30 +85,5 @@ impl Key {
             KeyType::RSAPublicKey { n, e: _ } => Some(n.clone()),
             _ => None,
         }
-    }
-
-    pub fn sign(&self, content_hash: BigUint) -> BigUint {
-        let d = self.get_d().unwrap();
-        let n = self.get_n().unwrap();
-        content_hash.modpow(&d, &n)
-    }
-
-    pub fn validate(&self, content_hash: BigUint, sign_value: BigUint) -> bool {
-        let e = self.get_e().unwrap();
-        let n = self.get_n().unwrap();
-        let new_value = sign_value.modpow(
-            &BigUint::from_i64(e as i64).expect("unable to convert e to BU"),
-            &n,
-        );
-        if new_value == content_hash {
-            return true;
-        }
-        false
-    }
-
-    pub fn save_to_file(&self, signed_hash: &BigUint, file_name: &String) -> () {
-        let n = self.get_n().unwrap();
-        let e = self.get_e().unwrap();
-        utilities::write_file(&signed_hash, n, e, file_name);
     }
 }
